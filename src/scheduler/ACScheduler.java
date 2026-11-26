@@ -39,17 +39,18 @@ public class ACScheduler implements Scheduler {
 
         List<Process> tier1 = new ArrayList<>();
         List<Process> tier2 = new ArrayList<>();
-
         Map<Process, Integer> demotionTime = new HashMap<>();
         boolean[] added = new boolean[simProcesses.size()];
         List<TimeStepSnapshot> snapshots = new ArrayList<>();
         List<GanttEntry> rawGantt = new ArrayList<>();
+
         int now = 0;
         int finishedCount = 0;
         Process running = null;
         Process lastProcess = null;
         int runningTier = 0;
         int quantumUsed = 0;
+
         while (finishedCount < simProcesses.size()) {
 
             addArrivals(simProcesses, tier1, added, now);
@@ -61,12 +62,7 @@ public class ACScheduler implements Scheduler {
                     running = getHighestPriority(tier2, demotionTime, now, inputOrder);
                     runningTier = 2;
                 } else {
-                    snapshots.add(new TimeStepSnapshot(
-                            now,
-                            GanttEntry.IDLE_LABEL,
-                            Collections.emptyList(),
-                            Collections.emptyList()
-                    ));
+                    snapshots.add(new TimeStepSnapshot(now,GanttEntry.IDLE_LABEL,Collections.emptyList(),Collections.emptyList()));
                     rawGantt.add(GanttEntry.idle(now, now + 1));
                     lastProcess = null;
                     now++;
@@ -82,11 +78,19 @@ public class ACScheduler implements Scheduler {
                                 formatQueue(tier1, null, demotionTime, now),
                                 formatQueue(tier2, null, demotionTime, now)
                         ));
-
-                        rawGantt.add(
-                                GanttEntry.contextSwitch(now, now + 1)
-                        );
+                        rawGantt.add(GanttEntry.contextSwitch(now, now + 1));
                         now++;
+                    }
+                    addArrivals(simProcesses, tier1, added, now);
+                    if (!tier1.isEmpty()) {
+                        running = tier1.get(0);
+                        runningTier = 1;
+                    } else if (!tier2.isEmpty()) {
+                        running = getHighestPriority(tier2, demotionTime, now, inputOrder);
+                        runningTier = 2;
+                    } else {
+                        running = null;
+                        continue;
                     }
                 }
                 if (runningTier == 1) {
@@ -98,8 +102,13 @@ public class ACScheduler implements Scheduler {
                 quantumUsed = 0;
                 running.recordFirstRun(now);
             }
-            snapshots.add(new TimeStepSnapshot(now,running.getName(),formatQueue(tier1, running, demotionTime, now),formatQueue(tier2, running, demotionTime, now)));
 
+            snapshots.add(new TimeStepSnapshot(
+                    now,
+                    running.getName(),
+                    formatQueue(tier1, running, demotionTime, now),
+                    formatQueue(tier2, running, demotionTime, now)
+            ));
             rawGantt.add(GanttEntry.process(running.getName(), now, now + 1));
             running.run(1);
             now++;
@@ -111,33 +120,28 @@ public class ACScheduler implements Scheduler {
                     lastProcess = running;
                     running = null;
                     quantumUsed = 0;
-
-                }
-                else if (quantumUsed == quantum) {
+                } else if (quantumUsed == quantum) {
                     tier2.add(running);
                     demotionTime.put(running, now);
+
                     lastProcess = running;
                     running = null;
                     quantumUsed = 0;
                 }
-            }
-
-            else if (runningTier == 2) {
+            } else if (runningTier == 2) {
                 if (running.getRemaining() == 0) {
                     running.markFinished(now);
                     finishedCount++;
                     lastProcess = running;
                     running = null;
                 }
-
             }
         }
         List<GanttEntry> mergedGantt = mergeConsecutiveGantt(rawGantt);
-        return new SimulationResult(snapshots,mergedGantt,simProcesses);
+        return new SimulationResult(snapshots, mergedGantt, simProcesses);
     }
 
-    private static void addArrivals(List<Process> processes,List<Process> tier1,boolean[] added,int now) {
-
+    private static void addArrivals(List<Process> processes, List<Process> tier1, boolean[] added, int now) {
         for (int i = 0; i < processes.size(); i++) {
             Process p = processes.get(i);
             if (!added[i] && p.getArrival() <= now) {
@@ -147,28 +151,26 @@ public class ACScheduler implements Scheduler {
         }
     }
 
-
-    private static int effectivePriority(Process p,int now,Map<Process, Integer> demotionTime) {
+    private static int effectivePriority(Process p, int now, Map<Process, Integer> demotionTime) {
         int waitingTime = now - demotionTime.get(p);
         int aging = waitingTime / AGING_INTERVAL;
         int priority = p.getPriority() - aging;
         return Math.max(0, priority);
     }
 
-
-    private static Process getHighestPriority(List<Process> tier2,Map<Process, Integer> demotionTime,int now,Map<Process, Integer> inputOrder) {
+    private static Process getHighestPriority(List<Process> tier2, Map<Process, Integer> demotionTime, int now, Map<Process, Integer> inputOrder) {
 
         Process chosen = tier2.get(0);
         for (int i = 1; i < tier2.size(); i++) {
             Process current = tier2.get(i);
             int currentPriority = effectivePriority(current, now, demotionTime);
             int chosenPriority = effectivePriority(chosen, now, demotionTime);
+
             if (currentPriority < chosenPriority) {
                 chosen = current;
             } else if (currentPriority == chosenPriority) {
                 if (current.getArrival() < chosen.getArrival()) {
                     chosen = current;
-
                 } else if (current.getArrival() == chosen.getArrival() && inputOrder.get(current) < inputOrder.get(chosen)) {
                     chosen = current;
                 }
@@ -177,7 +179,6 @@ public class ACScheduler implements Scheduler {
 
         return chosen;
     }
-
 
     private static List<String> formatQueue(List<Process> queue,Process running,Map<Process, Integer> demotionTime,int now) {
 
@@ -188,12 +189,10 @@ public class ACScheduler implements Scheduler {
                 priority = effectivePriority(p, now, demotionTime);
             }
 
-            formatted.add(p.getName()+ " (remaining: " + p.getRemaining() + ", Priority: " + priority + ")");
+            formatted.add(p.getName() + " (remaining: " + p.getRemaining() + ", Priority: " + priority + ")");
         }
         return formatted;
     }
-
-
 
     private static List<GanttEntry> mergeConsecutiveGantt(List<GanttEntry> raw) {
 
@@ -205,9 +204,7 @@ public class ACScheduler implements Scheduler {
         for (int i = 1; i < raw.size(); i++) {
             GanttEntry next = raw.get(i);
             if (current.getType() == next.getType() && current.getLabel().equals(next.getLabel()) && current.getEnd() == next.getStart()) {
-
-                current = createEntry(current.getType(),current.getLabel(),current.getStart(),next.getEnd());
-
+                current = createEntry( current.getType(), current.getLabel(), current.getStart(), next.getEnd());
             } else {
                 merged.add(current);
                 current = next;
@@ -217,7 +214,7 @@ public class ACScheduler implements Scheduler {
         return merged;
     }
 
-    private static GanttEntry createEntry(GanttEntry.Type type,String label,int start,int end) {
+    private static GanttEntry createEntry(GanttEntry.Type type, String label, int start, int end) {
 
         switch (type) {
             case PROCESS:
