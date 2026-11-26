@@ -1,0 +1,12 @@
+# Test Case 2
+# Source: CS241 Assignment 2 PDF
+# Columns: name arrival burst priority (lower priority number = higher priority)
+# Expected (ACS): finish P1=18, P2=15, P3=20; avg turnaround 16.00; avg waiting 11.00
+
+Name=Test Case 2
+Q=3
+CS=1
+
+P1 0 5 4
+P2 1 6 2
+P3 4 4 3
