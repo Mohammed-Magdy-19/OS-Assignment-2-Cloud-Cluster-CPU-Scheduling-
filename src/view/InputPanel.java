@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -19,6 +20,8 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import model.Process;
 
@@ -56,6 +59,11 @@ public class InputPanel extends JPanel {
     private final JSpinner contextSwitchSpinner = new JSpinner(new SpinnerNumberModel(0, 0, MAX_VALUE, 1));
     private final JButton runButton = new JButton("Run simulation");
     private final JButton graphButton = new JButton("Show Q/CS graph (ACS)");
+
+    /** Listeners notified whenever any input field changes. */
+    private final List<Runnable> inputChangeListeners = new CopyOnWriteArrayList<>();
+    /** Suppresses change notifications during bulk operations like loadPreset. */
+    private boolean suppressChangeEvents = false;
 
     public InputPanel() {
         setLayout(new BorderLayout(0, 8));
@@ -105,6 +113,20 @@ public class InputPanel extends JPanel {
         south.add(actionButtons, BorderLayout.SOUTH);
         add(south, BorderLayout.SOUTH);
 
+        // --- wire up change listeners so the graph auto-updates on any input edit ---
+
+        // Table cell edits, row inserts/deletes
+        tableModel.addTableModelListener(new TableModelListener() {
+            @Override
+            public void tableChanged(TableModelEvent e) {
+                fireInputChanged();
+            }
+        });
+
+        // Spinner value changes
+        quantumSpinner.addChangeListener(e -> fireInputChanged());
+        contextSwitchSpinner.addChangeListener(e -> fireInputChanged());
+
         loadPreset(TEST_1, 3, 0);   // start with a ready-to-run example
     }
 
@@ -116,6 +138,14 @@ public class InputPanel extends JPanel {
 
     public void addGraphListener(ActionListener listener) {
         graphButton.addActionListener(listener);
+    }
+
+    /**
+     * Register a callback that fires whenever any input changes:
+     * table cell edits, row add/remove, preset loads, or spinner changes.
+     */
+    public void addInputChangeListener(Runnable listener) {
+        inputChangeListeners.add(listener);
     }
 
     /**
@@ -211,12 +241,28 @@ public class InputPanel extends JPanel {
 
     private void loadPreset(Object[][] rows, int quantum, int contextSwitch) {
         stopEditing();
-        tableModel.setRowCount(0);
-        for (Object[] row : rows) {
-            tableModel.addRow(row.clone());
+        // Suppress individual change events during bulk load; fire one at the end.
+        suppressChangeEvents = true;
+        try {
+            tableModel.setRowCount(0);
+            for (Object[] row : rows) {
+                tableModel.addRow(row.clone());
+            }
+            quantumSpinner.setValue(quantum);
+            contextSwitchSpinner.setValue(contextSwitch);
+        } finally {
+            suppressChangeEvents = false;
         }
-        quantumSpinner.setValue(quantum);
-        contextSwitchSpinner.setValue(contextSwitch);
+        fireInputChanged();
+    }
+
+    private void fireInputChanged() {
+        if (suppressChangeEvents) {
+            return;
+        }
+        for (Runnable listener : inputChangeListeners) {
+            listener.run();
+        }
     }
 
     private String cell(int row, int col) {

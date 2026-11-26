@@ -19,7 +19,10 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import model.GanttEntry;
 
-/** Draws the Gantt chart: one coloured block per process run, hatched grey for context switches. */
+/**
+ * Draws the Gantt chart: one coloured block per process run, hatched grey for
+ * context switches.
+ */
 public class GanttChartPanel extends JPanel {
 
     private final Canvas canvas = new Canvas();
@@ -40,10 +43,13 @@ public class GanttChartPanel extends JPanel {
         canvas.setEntries(Collections.<GanttEntry>emptyList());
     }
 
-    /** The drawing surface. Its preferred width grows with the simulation length, so the scroll pane works. */
+    /**
+     * The drawing surface. Its preferred width grows with the simulation length, so
+     * the scroll pane works.
+     */
     private static final class Canvas extends JPanel {
 
-        private static final int UNIT = 32;        // pixels per time unit
+        private static final int UNIT = 32; // pixels per time unit
         private static final int MARGIN = 15;
         private static final int BAR_HEIGHT = 44;
         private static final int LABEL_SPACE = 22;
@@ -92,18 +98,29 @@ public class GanttChartPanel extends JPanel {
                     return;
                 }
 
+                // Track the right edge of the last drawn time label to avoid overlaps.
+                int lastLabelRight = Integer.MIN_VALUE;
                 for (GanttEntry entry : entries) {
                     int x = MARGIN + entry.getStart() * UNIT;
                     int width = entry.getDuration() * UNIT;
                     paintBlock(g2, fm, entry, x, width);
 
-                    g2.setColor(getForeground());
-                    g2.drawString(String.valueOf(entry.getStart()), x - 3, MARGIN + BAR_HEIGHT + 16);
+                    String timeText = String.valueOf(entry.getStart());
+                    int textX = x - 3;
+                    int textWidth = fm.stringWidth(timeText);
+                    if (textX > lastLabelRight) {
+                        g2.setColor(getForeground());
+                        g2.drawString(timeText, textX, MARGIN + BAR_HEIGHT + 16);
+                        lastLabelRight = textX + textWidth + 2;
+                    }
                 }
                 GanttEntry last = entries.get(entries.size() - 1);
-                g2.setColor(getForeground());
-                g2.drawString(String.valueOf(last.getEnd()),
-                        MARGIN + last.getEnd() * UNIT - 3, MARGIN + BAR_HEIGHT + 16);
+                String endText = String.valueOf(last.getEnd());
+                int endX = MARGIN + last.getEnd() * UNIT - 3;
+                if (endX > lastLabelRight) {
+                    g2.setColor(getForeground());
+                    g2.drawString(endText, endX, MARGIN + BAR_HEIGHT + 16);
+                }
             } finally {
                 g2.dispose();
             }
@@ -129,7 +146,7 @@ public class GanttChartPanel extends JPanel {
 
             if (entry.getType() == GanttEntry.Type.CONTEXT_SWITCH) {
                 g2.setColor(new Color(110, 110, 110));
-                for (int hx = x - BAR_HEIGHT; hx < x + width; hx += 8) {   // diagonal hatching, clipped to the block
+                for (int hx = x - BAR_HEIGHT; hx < x + width; hx += 8) { // diagonal hatching, clipped to the block
                     java.awt.Shape oldClip = g2.getClip();
                     g2.clipRect(x, MARGIN, width, BAR_HEIGHT);
                     g2.drawLine(hx, MARGIN + BAR_HEIGHT, hx + BAR_HEIGHT, MARGIN);
@@ -143,7 +160,7 @@ public class GanttChartPanel extends JPanel {
 
             String label = entry.getLabel();
             int textWidth = fm.stringWidth(label);
-            if (textWidth + 4 <= width) {   // skip the text if the block is too narrow to hold it
+            if (textWidth + 4 <= width) { // skip the text if the block is too narrow to hold it
                 g2.setColor(Color.BLACK);
                 g2.drawString(label, x + (width - textWidth) / 2,
                         MARGIN + (BAR_HEIGHT + fm.getAscent() - fm.getDescent()) / 2);

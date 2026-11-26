@@ -10,7 +10,8 @@ public class Main {
             try {
                 UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             } catch (Exception e) {
-                // Not fatal: Swing keeps its default look. We still report it instead of hiding it.
+                // Not fatal: Swing keeps its default look. We still report it instead of hiding
+                // it.
                 System.err.println("Could not apply the system look and feel, using the default: " + e);
             }
             new MainFrame().setVisible(true);

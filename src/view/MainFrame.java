@@ -37,6 +37,7 @@ public class MainFrame extends JFrame {
                 graphPanel, () -> tabs.setSelectedComponent(graphPanel), this);
 
         setSize(1150, 700);
+        setMinimumSize(new java.awt.Dimension(800, 500));
         setLocationRelativeTo(null);
     }
 }

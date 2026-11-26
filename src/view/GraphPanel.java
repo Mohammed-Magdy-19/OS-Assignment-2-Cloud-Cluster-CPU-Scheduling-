@@ -11,6 +11,8 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.RenderingHints;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
@@ -26,9 +28,12 @@ import javax.swing.JPanel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
- * Two line charts (average waiting time and average turnaround time) against the quantum,
+ * Two line charts (average waiting time and average turnaround time) against
+ * the quantum,
  * with one line per context-switch value. It only draws numbers it is given;
  * the controller does the simulations.
+ *
+ * The charts resize dynamically when the panel is resized.
  */
 public class GraphPanel extends JPanel {
 
@@ -55,8 +60,17 @@ public class GraphPanel extends JPanel {
         bottom.add(saveButton);
         add(bottom, BorderLayout.SOUTH);
 
-        saveButton.setEnabled(false);   // nothing to save until data arrives
+        saveButton.setEnabled(false); // nothing to save until data arrives
         saveButton.addActionListener(e -> saveAsPng());
+
+        // Repaint charts whenever the panel is resized so the graph scales dynamically.
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                waitingChart.repaint();
+                turnaroundChart.repaint();
+            }
+        });
     }
 
     /**
@@ -64,7 +78,8 @@ public class GraphPanel extends JPanel {
      * @param contextSwitches one line per value, for example 0..3
      * @param avgWaiting      [contextSwitch index][quantum index]
      * @param avgTurnaround   [contextSwitch index][quantum index]
-     * @throws IllegalArgumentException if the arrays are empty, mismatched, negative or not finite
+     * @throws IllegalArgumentException if the arrays are empty, mismatched,
+     *                                  negative or not finite
      */
     public void setData(int[] quantums, int[] contextSwitches, double[][] avgWaiting, double[][] avgTurnaround) {
         if (quantums == null || quantums.length == 0) {
@@ -103,7 +118,8 @@ public class GraphPanel extends JPanel {
         }
     }
 
-    // ------------------------------------------------------------------- PNG export
+    // ------------------------------------------------------------------- PNG
+    // export
 
     private void saveAsPng() {
         int width = charts.getWidth();
@@ -152,7 +168,8 @@ public class GraphPanel extends JPanel {
         }
     }
 
-    // --------------------------------------------------------------------- one chart
+    // --------------------------------------------------------------------- one
+    // chart
 
     private static final class ChartCanvas extends JPanel {
 
@@ -166,11 +183,41 @@ public class GraphPanel extends JPanel {
         private double yMax = 1;
         private double yStep = 1;
 
+        /** Closest data point to the mouse, or -1/-1 when none is near. */
+        private int hoverC = -1;
+        private int hoverQ = -1;
+
         ChartCanvas(String title) {
             this.title = title;
-            setBackground(Color.WHITE);                 // white so exported images look clean
-            setPreferredSize(new Dimension(380, 320));
-            setToolTipText("");                         // enables getToolTipText below
+            setBackground(Color.WHITE); // white so exported images look clean
+            setMinimumSize(new Dimension(200, 180)); // prevent collapse on small windows
+            setToolTipText(""); // enables getToolTipText below
+
+            // Repaint on every resize so the chart fills the available space.
+            addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    repaint();
+                }
+            });
+
+            // Track mouse for hover highlight on data points.
+            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    updateHover(e.getX(), e.getY());
+                }
+            });
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    if (hoverC != -1 || hoverQ != -1) {
+                        hoverC = -1;
+                        hoverQ = -1;
+                        repaint();
+                    }
+                }
+            });
         }
 
         void setData(int[] q, int[] cs, double[][] v) {
@@ -190,7 +237,12 @@ public class GraphPanel extends JPanel {
             } else {
                 yStep = niceStep(max / 5);
                 yMax = Math.ceil(max / yStep - 1e-9) * yStep;
+                if (yMax <= 0) {
+                    // Safety guard: should never happen, but avoids division by zero in yAt().
+                    yMax = 1;
+                }
             }
+            revalidate();
             repaint();
         }
 
@@ -198,11 +250,20 @@ public class GraphPanel extends JPanel {
             quantums = new int[0];
             contextSwitches = new int[0];
             values = new double[0][0];
+            hoverC = -1;
+            hoverQ = -1;
+            revalidate();
             repaint();
         }
 
-        /** Rounds a raw step up to 1, 2, 5 or 10 times a power of ten, so the axis labels look tidy. */
+        /**
+         * Rounds a raw step up to 1, 2, 5 or 10 times a power of ten, so the axis
+         * labels look tidy.
+         */
         private static double niceStep(double raw) {
+            if (raw <= 0) {
+                return 1; // safety: avoid log10(0) which is -Infinity
+            }
             double magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
             double r = raw / magnitude;
             double factor = r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10;
@@ -210,8 +271,13 @@ public class GraphPanel extends JPanel {
         }
 
         // ---- geometry shared by painting and tooltips
-        private int plotWidth()  { return Math.max(1, getWidth() - LEFT - RIGHT); }
-        private int plotHeight() { return Math.max(1, getHeight() - TOP - BOTTOM); }
+        private int plotWidth() {
+            return Math.max(1, getWidth() - LEFT - RIGHT);
+        }
+
+        private int plotHeight() {
+            return Math.max(1, getHeight() - TOP - BOTTOM);
+        }
 
         private int xAt(int index) {
             int n = quantums.length;
@@ -223,6 +289,28 @@ public class GraphPanel extends JPanel {
 
         private int yAt(double value) {
             return TOP + plotHeight() - (int) Math.round(value / yMax * plotHeight());
+        }
+
+        private void updateHover(int mx, int my) {
+            int bestC = -1, bestQ = -1;
+            int bestDist = Integer.MAX_VALUE;
+            for (int c = 0; c < values.length; c++) {
+                for (int q = 0; q < quantums.length; q++) {
+                    int dx = mx - xAt(q);
+                    int dy = my - yAt(values[c][q]);
+                    int dist = dx * dx + dy * dy;
+                    if (dist <= 150 && dist < bestDist) {
+                        bestDist = dist;
+                        bestC = c;
+                        bestQ = q;
+                    }
+                }
+            }
+            if (bestC != hoverC || bestQ != hoverQ) {
+                hoverC = bestC;
+                hoverQ = bestQ;
+                repaint();
+            }
         }
 
         @Override
@@ -257,6 +345,7 @@ public class GraphPanel extends JPanel {
                 paintTitle(g2);
                 paintAxes(g2, fm);
                 paintLines(g2);
+                paintHover(g2, fm);
                 paintLegend(g2, fm);
             } finally {
                 g2.dispose();
@@ -289,7 +378,15 @@ public class GraphPanel extends JPanel {
             g2.drawLine(LEFT, TOP, LEFT, TOP + plotHeight());
             g2.drawLine(LEFT, TOP + plotHeight(), LEFT + plotWidth(), TOP + plotHeight());
 
-            int every = Math.max(1, (quantums.length + 11) / 12);   // avoid overlapping x labels
+            // Skip x labels when they would overlap, based on actual text widths.
+            int minGap = fm.stringWidth("00") + 6;
+            int every = 1;
+            if (quantums.length > 1) {
+                int pixelPerStep = plotWidth() / (quantums.length - 1);
+                if (pixelPerStep < minGap && minGap > 0) {
+                    every = Math.max(1, (minGap + pixelPerStep - 1) / pixelPerStep);
+                }
+            }
             for (int i = 0; i < quantums.length; i += every) {
                 String label = String.valueOf(quantums[i]);
                 int x = xAt(i);
@@ -315,10 +412,47 @@ public class GraphPanel extends JPanel {
                     g2.drawLine(xAt(q), yAt(values[c][q]), xAt(q + 1), yAt(values[c][q + 1]));
                 }
                 for (int q = 0; q < quantums.length; q++) {
-                    g2.fillOval(xAt(q) - MARKER / 2, yAt(values[c][q]) - MARKER / 2, MARKER, MARKER);
+                    int markerSize = MARKER;
+                    // Enlarge the marker when hovered.
+                    if (c == hoverC && q == hoverQ) {
+                        markerSize = MARKER + 6;
+                    }
+                    g2.fillOval(xAt(q) - markerSize / 2, yAt(values[c][q]) - markerSize / 2,
+                            markerSize, markerSize);
                 }
             }
             g2.setStroke(new BasicStroke(1f));
+        }
+
+        /** Draw a value callout near the hovered data point. */
+        private void paintHover(Graphics2D g2, FontMetrics fm) {
+            if (hoverC < 0 || hoverQ < 0) {
+                return;
+            }
+            double value = values[hoverC][hoverQ];
+            String text = String.format(Locale.US, "CS=%d, Q=%d: %.2f",
+                    contextSwitches[hoverC], quantums[hoverQ], value);
+            int px = xAt(hoverQ);
+            int py = yAt(value);
+
+            int tw = fm.stringWidth(text) + 10;
+            int th = fm.getHeight() + 6;
+            int tx = px + 10;
+            int ty = py - th - 4;
+            // Keep the callout inside the panel bounds.
+            if (tx + tw > getWidth() - RIGHT) {
+                tx = px - tw - 10;
+            }
+            if (ty < TOP) {
+                ty = py + 10;
+            }
+
+            g2.setColor(new Color(255, 255, 230));
+            g2.fillRoundRect(tx, ty, tw, th, 6, 6);
+            g2.setColor(Color.DARK_GRAY);
+            g2.drawRoundRect(tx, ty, tw, th, 6, 6);
+            g2.setColor(Color.BLACK);
+            g2.drawString(text, tx + 5, ty + fm.getAscent() + 3);
         }
 
         private void paintLegend(Graphics2D g2, FontMetrics fm) {
