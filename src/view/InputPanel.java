@@ -24,6 +24,8 @@ import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import model.Process;
+import util.TestCaseLoader;
+import util.TestCaseLoader.TestCase;
 
 /**
  * Left-hand panel: process table, algorithm choice, quantum, context switch and the Run button.
@@ -48,9 +50,6 @@ public class InputPanel extends JPanel {
 
     private static final String[] COLUMNS = {"Process", "Arrival", "Burst", "Priority"};
     private static final int NAME_COL = 0, ARRIVAL_COL = 1, BURST_COL = 2, PRIORITY_COL = 3;
-
-    private static final Object[][] TEST_1 = {{"P1", 0, 4, 2}, {"P2", 1, 7, 3}, {"P3", 3, 2, 1}};
-    private static final Object[][] TEST_2 = {{"P1", 0, 5, 4}, {"P2", 1, 6, 2}, {"P3", 4, 4, 3}};
 
     private final DefaultTableModel tableModel = new DefaultTableModel(COLUMNS, 0);
     private final JTable table = new JTable(tableModel);
@@ -82,8 +81,8 @@ public class InputPanel extends JPanel {
         JButton test2Button = new JButton("Load Test 2");
         addButton.addActionListener(e -> addRow());
         removeButton.addActionListener(e -> removeSelectedRows());
-        test1Button.addActionListener(e -> loadPreset(TEST_1, 3, 0));
-        test2Button.addActionListener(e -> loadPreset(TEST_2, 3, 1));
+        test1Button.addActionListener(e -> loadPreset(1));
+        test2Button.addActionListener(e -> loadPreset(2));
 
         JPanel tableButtons = new JPanel(new GridLayout(2, 2, 6, 6));
         tableButtons.add(addButton);
@@ -127,7 +126,7 @@ public class InputPanel extends JPanel {
         quantumSpinner.addChangeListener(e -> fireInputChanged());
         contextSwitchSpinner.addChangeListener(e -> fireInputChanged());
 
-        loadPreset(TEST_1, 3, 0);   // start with a ready-to-run example
+        loadPreset(1);   // start with a ready-to-run example
     }
 
     // ------------------------------------------------------------------ public API
@@ -239,17 +238,25 @@ public class InputPanel extends JPanel {
         }
     }
 
-    private void loadPreset(Object[][] rows, int quantum, int contextSwitch) {
+    private void loadPreset(int number) {
         stopEditing();
+        TestCase tc;
+        try {
+            tc = TestCaseLoader.load(number);
+        } catch (IllegalArgumentException | java.io.UncheckedIOException e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Could not load test case", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         // Suppress individual change events during bulk load; fire one at the end.
         suppressChangeEvents = true;
         try {
             tableModel.setRowCount(0);
-            for (Object[] row : rows) {
-                tableModel.addRow(row.clone());
+            for (Process p : tc.getProcesses()) {
+                tableModel.addRow(new Object[]{p.getName(), p.getArrival(), p.getBurst(), p.getPriority()});
             }
-            quantumSpinner.setValue(quantum);
-            contextSwitchSpinner.setValue(contextSwitch);
+            quantumSpinner.setValue(tc.getQuantum());
+            contextSwitchSpinner.setValue(tc.getContextSwitch());
         } finally {
             suppressChangeEvents = false;
         }
